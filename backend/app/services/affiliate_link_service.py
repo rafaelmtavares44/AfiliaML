@@ -35,15 +35,28 @@ class AffiliateLinkService:
         }
 
     async def gerar_via_template(self, product_id: str) -> dict:
-        """Gera link via template configurado."""
+        """
+        Gera link via template oficial do Mercado Livre Afiliados.
+        Materia: Empreendedorismo - Automação de monetização via afiliados.
+        """
+        from app.services.ml_api_service import ml_api_service
+        
         settings = get_settings()
         produto = await product_repository.buscar_por_id(product_id)
         if not produto:
             raise ValueError("Produto não encontrado")
 
         original_url = produto.get("originalUrl", "")
-        template = settings.AFFILIATE_LINK_TEMPLATE
-        generated_url = template.replace("{url}", original_url)
+        slug = produto.get("slug") or "produto"
+        mlb_id = ml_api_service.extrair_mlb_id(original_url) or product_id
+
+        # Padrao oficial: https://www.mercadolivre.com.br/{slug}/p/{MLB_ID}?matt_tool={tool}&matt_source={source}&matt_medium={medium}
+        generated_url = (
+            f"https://www.mercadolivre.com.br/{slug}/p/{mlb_id}?"
+            f"matt_tool={settings.MATT_TOOL}&"
+            f"matt_source={settings.MATT_SOURCE}&"
+            f"matt_medium={settings.MATT_MEDIUM}"
+        )
 
         await product_repository.atualizar(
             product_id, {"affiliateUrl": generated_url}

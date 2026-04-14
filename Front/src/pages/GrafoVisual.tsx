@@ -1,29 +1,31 @@
 // ============================================
 // AfiliaML — Visualização do Grafo de Produtos
-// NOVO: Fase 3.2 — Force-directed graph em SVG puro
+// Materia: Graph Mining - Visualização de redes de co-ocorrência e centralidade.
 // ============================================
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useRef, useMemo } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Network, RefreshCw, Info } from "lucide-react";
+import { Network, RefreshCw, Info, DollarSign, BarChart3, Tag, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 
-const API = "http://localhost:3333";
+const API = import.meta.env.VITE_API_URL || "http://localhost:3333";
 
 const COMMUNITY_COLORS = [
   "#8b5cf6", "#3b82f6", "#22c55e", "#ef4444", "#f59e0b",
   "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#06b6d4",
 ];
 
-interface GNode { id: string; title?: string; category?: string; x: number; y: number; vx: number; vy: number; community: number; pageRank: number; }
+interface GNode { id: string; title?: string; category?: string; x: number; y: number; vx: number; vy: number; community: number; pageRank: number; price?: number; discountPct?: number; }
 interface GEdge { source: string; target: string; weight: number; }
 
-// Force-directed layout (TypeScript puro)
-function forceLayout(nodes: GNode[], edges: GEdge[], width: number, height: number, iterations: number = 80) {
-  const k = Math.sqrt((width * height) / Math.max(nodes.length, 1));
+// Force-directed layout (Técnica de Simulação Física)
+function forceLayout(nodes: GNode[], edges: GEdge[], width: number, height: number, iterations: number = 60) {
+  const k = Math.sqrt((width * height) / Math.max(nodes.length, 1)) * 0.8;
 
   for (let iter = 0; iter < iterations; iter++) {
     const temp = 1 - iter / iterations;
@@ -48,13 +50,13 @@ function forceLayout(nodes: GNode[], edges: GEdge[], width: number, height: numb
     // Atração pelas arestas
     const nodeMap = new Map(nodes.map((n) => [n.id, n]));
     for (const edge of edges) {
-      const a = nodeMap.get(edge.source);
-      const b = nodeMap.get(edge.target);
+      const a = nodeMap.get(typeof edge.source === 'string' ? edge.source : (edge.source as any).id);
+      const b = nodeMap.get(typeof edge.target === 'string' ? edge.target : (edge.target as any).id);
       if (!a || !b) continue;
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
-      const force = (dist * dist) / k * edge.weight * 0.1 * cooling;
+      const force = (dist * dist) / k * (edge.weight || 1) * 0.05 * cooling;
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
       a.vx += fx;
@@ -63,90 +65,97 @@ function forceLayout(nodes: GNode[], edges: GEdge[], width: number, height: numb
       b.vy -= fy;
     }
 
-    // Aplicar velocidade com dissipação
+    // Aplicar velocidade com dissipação e gravidade central
     for (const node of nodes) {
-      node.x += node.vx * 0.5;
-      node.y += node.vy * 0.5;
-      node.vx *= 0.7;
-      node.vy *= 0.7;
-      // Manter dentro dos bounds
-      node.x = Math.max(30, Math.min(width - 30, node.x));
-      node.y = Math.max(30, Math.min(height - 30, node.y));
+      // Gravidade leve para o centro
+      node.vx += (width / 2 - node.x) * 0.01;
+      node.vy += (height / 2 - node.y) * 0.01;
+
+      node.x += node.vx * 0.4;
+      node.y += node.vy * 0.4;
+      node.vx *= 0.6;
+      node.vy *= 0.6;
+      
+      node.x = Math.max(20, Math.min(width - 20, node.x));
+      node.y = Math.max(20, Math.min(height - 20, node.y));
     }
   }
 }
 
 export default function GrafoVisual() {
-  const [stats, setStats] = useState<any>(null);
-  const [nodes, setNodes] = useState<GNode[]>([]);
-  const [edges, setEdges] = useState<GEdge[]>([]);
-  const [communities, setCommunities] = useState<Map<number, number>>(new Map());
-  const [selectedNode, setSelectedNode] = useState<GNode | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const SVG_W = 800;
   const SVG_H = 600;
 
-  useEffect(() => { fetchGraph(); }, []);
+  // Materia: Data Mining - Coleta de propriedades grafocêntricas (PageRank, Stats)
+  const { data: stats } = useQuery({
+    queryKey: ["graph", "stats"],
+    queryFn: async () => {
+      const res = await fetch(`${API}/api/graph/stats`);
+      const d = await res.json();
+      return d.data;
+    }
+  });
 
-  const fetchGraph = async () => {
-    setLoading(true);
-    try {
-      // Construir grafo
-      const buildRes = await fetch(`${API}/api/graph/build`);
-      const buildData = await buildRes.json();
-      if (buildData.success) setStats(buildData.data.stats);
+  const { data: graphData, isLoading: loadingGraph } = useQuery({
+    queryKey: ["graph", "viz"],
+    queryFn: async () => {
+      const res = await fetch(`${API}/api/graph/visualization`);
+      const d = await res.json();
+      
+      // Mapear PageRank do Redis secundário (destaques do dia costumam ter PR calculado)
+      const prRes = await fetch(`${API}/api/recommendations/daily`);
+      const prData = await prRes.json();
+      const prMap = new Map((prData.data || []).map((i: any) => [i.productId, i.pageRankScore]));
 
-      // Buscar grafo completo do cache
-      const graphRes = await fetch(`${API}/api/graph/pagerank`);
-      const graphData = await graphRes.json();
-
-      const commRes = await fetch(`${API}/api/graph/communities`);
-      const commData = await commRes.json();
-
-      // Mapear comunidades
-      const commMap = new Map<string, number>();
-      if (commData.success) {
-        (commData.data || []).forEach((c: any, communityIdx: number) => {
-          (c.members || []).forEach((m: any) => {
-            commMap.set(m.productId, communityIdx);
-          });
-        });
-      }
-
-      // Criar nós
-      const prNodes: GNode[] = (graphData.data || []).slice(0, 80).map((item: any, i: number) => ({
-        id: item.productId,
-        title: item.title || "Produto",
-        category: "",
-        x: SVG_W / 2 + (Math.random() - 0.5) * SVG_W * 0.8,
-        y: SVG_H / 2 + (Math.random() - 0.5) * SVG_H * 0.8,
+      const nodes: GNode[] = (d.data?.nodes || []).map((n: any, i: number) => ({
+        ...n,
+        x: SVG_W / 2 + (Math.random() - 0.5) * SVG_W * 0.6,
+        y: SVG_H / 2 + (Math.random() - 0.5) * SVG_H * 0.6,
         vx: 0, vy: 0,
-        community: commMap.get(item.productId) ?? i,
-        pageRank: item.score || 0.001,
+        community: n.community || (i % 10), 
+        pageRank: prMap.get(n.id) || 0.01
       }));
 
-      // Aplicar force layout
-      forceLayout(prNodes, [], SVG_W, SVG_H, 80);
-
-      setNodes(prNodes);
-      setEdges([]);
-
-      // Contar comunidades
-      const commCount = new Map<number, number>();
-      prNodes.forEach((n) => {
-        commCount.set(n.community % 10, (commCount.get(n.community % 10) || 0) + 1);
-      });
-      setCommunities(commCount);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+      const edges: GEdge[] = d.data?.edges || [];
+      forceLayout(nodes, edges, SVG_W, SVG_H, 100);
+      return { nodes, edges };
     }
-  };
+  });
 
-  const maxPR = Math.max(...nodes.map((n) => n.pageRank), 0.001);
+  const rebuildMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${API}/api/graph/process`, { method: "POST" });
+      if (!res.ok) throw new Error("Erro ao processar");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "✅ Grafo reconstruído!" });
+      queryClient.invalidateQueries({ queryKey: ["graph"] });
+    }
+  });
+
+  const selectedNode = useMemo(() => 
+    graphData?.nodes.find(n => n.id === selectedNodeId), 
+    [graphData, selectedNodeId]
+  );
+
+  const maxPR = useMemo(() => 
+    Math.max(...(graphData?.nodes.map(n => n.pageRank) || [0.001]), 0.001), 
+    [graphData]
+  );
+
+  const communityStats = useMemo(() => {
+    const counts = new Map<number, number>();
+    graphData?.nodes.forEach(n => {
+      counts.set(n.community, (counts.get(n.community) || 0) + 1);
+    });
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  }, [graphData]);
 
   return (
     <Layout>
@@ -156,121 +165,161 @@ export default function GrafoVisual() {
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <Network className="h-6 w-6 text-blue-500" /> Grafo de Produtos
             </h1>
-            <p className="text-sm text-muted-foreground">Visualização interativa das relações entre produtos</p>
+            <p className="text-sm text-muted-foreground">Relacionamentos por co-ocorrência em campanhas e cliques.</p>
           </div>
-          <Button onClick={fetchGraph} disabled={loading} variant="outline" size="sm" className="gap-2">
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Reconstruir
+          <Button onClick={() => rebuildMutation.mutate()} disabled={rebuildMutation.isPending} variant="outline" size="sm" className="gap-2 shadow-sm">
+            <RefreshCw className={`h-4 w-4 ${rebuildMutation.isPending ? "animate-spin" : ""}`} />
+            Reanalisar Grafo
           </Button>
         </div>
 
-        {/* Stats cards */}
         {stats && (
           <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-            <Card><CardContent className="p-4 text-center">
+            <Card className="bg-muted/30 border-none shadow-sm"><CardContent className="p-4 text-center">
               <p className="text-2xl font-bold text-primary">{stats.numberOfNodes}</p>
-              <p className="text-xs text-muted-foreground">Nós (Produtos)</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Produtos (Nós)</p>
             </CardContent></Card>
-            <Card><CardContent className="p-4 text-center">
+            <Card className="bg-muted/30 border-none shadow-sm"><CardContent className="p-4 text-center">
               <p className="text-2xl font-bold text-blue-500">{stats.numberOfEdges}</p>
-              <p className="text-xs text-muted-foreground">Arestas (Relações)</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Links (Arestas)</p>
             </CardContent></Card>
-            <Card><CardContent className="p-4 text-center">
+            <Card className="bg-muted/30 border-none shadow-sm"><CardContent className="p-4 text-center">
               <p className="text-2xl font-bold text-purple-500">{stats.averageDegree}</p>
-              <p className="text-xs text-muted-foreground">Grau Médio</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Grau Médio</p>
             </CardContent></Card>
-            <Card><CardContent className="p-4 text-center">
+            <Card className="bg-muted/30 border-none shadow-sm"><CardContent className="p-4 text-center">
               <p className="text-2xl font-bold text-emerald-500">{stats.densidade}</p>
-              <p className="text-xs text-muted-foreground">Densidade</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Densidade</p>
             </CardContent></Card>
           </div>
         )}
 
         <div className="grid gap-4 lg:grid-cols-4">
-          {/* SVG Graph */}
-          <Card className="lg:col-span-3">
-            <CardContent className="p-2">
-              {loading ? (
-                <div className="flex items-center justify-center h-[600px] text-muted-foreground">
-                  Calculando layout do grafo...
+          <Card className="lg:col-span-3 border-border/40 bg-card overflow-hidden">
+            <CardContent className="p-0 relative">
+              {loadingGraph ? (
+                <div className="flex flex-col items-center justify-center h-[600px] text-muted-foreground gap-4">
+                  <Loader2 className="h-10 w-10 animate-spin opacity-20" />
+                  <p className="text-sm animate-pulse">Computando layout do grafo...</p>
                 </div>
               ) : (
-                <svg ref={svgRef} viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="w-full h-auto border rounded-lg bg-background"
-                  style={{ minHeight: 400 }}>
-                  {/* Arestas */}
-                  {edges.map((e, i) => {
-                    const a = nodes.find((n) => n.id === e.source);
-                    const b = nodes.find((n) => n.id === e.target);
-                    if (!a || !b) return null;
-                    return (
-                      <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                        stroke="#94a3b8" strokeWidth={Math.max(0.5, e.weight * 0.5)}
-                        opacity={Math.min(0.6, e.weight * 0.2)} />
-                    );
-                  })}
-                  {/* Nós */}
-                  {nodes.map((node) => {
-                    const radius = Math.max(3, Math.min(12, (node.pageRank / maxPR) * 12));
-                    const color = COMMUNITY_COLORS[node.community % 10];
-                    const isSelected = selectedNode?.id === node.id;
-                    return (
-                      <g key={node.id} onClick={() => setSelectedNode(node)} style={{ cursor: "pointer" }}>
-                        <circle cx={node.x} cy={node.y} r={radius + (isSelected ? 3 : 0)}
-                          fill={color} stroke={isSelected ? "#fff" : "none"} strokeWidth={2}
-                          opacity={0.85}>
-                          <title>{node.title}</title>
-                        </circle>
-                      </g>
-                    );
-                  })}
+                <svg ref={svgRef} viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="w-full h-[600px] bg-background">
+                  <defs>
+                    <radialGradient id="nodeGradient">
+                      <stop offset="0%" stopColor="white" stopOpacity="0.4" />
+                      <stop offset="100%" stopColor="transparent" stopOpacity="0" />
+                    </radialGradient>
+                  </defs>
+                  
+                  {/* Edges */}
+                  <g>
+                    {graphData?.edges.map((e, i) => {
+                      const a = graphData.nodes.find(n => n.id === (typeof e.source === 'string' ? e.source : (e.source as any).id));
+                      const b = graphData.nodes.find(n => n.id === (typeof e.target === 'string' ? e.target : (e.target as any).id));
+                      if (!a || !b) return null;
+                      return (
+                        <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                          stroke="#cbd5e1" strokeWidth={Math.max(0.5, (e.weight || 1) * 0.3)}
+                          opacity={0.3} />
+                      );
+                    })}
+                  </g>
+                  
+                  {/* Nodes */}
+                  <g>
+                    {graphData?.nodes.map((node) => {
+                      const radius = 5 + (node.pageRank / maxPR) * 15;
+                      const color = COMMUNITY_COLORS[node.community % 10];
+                      const isSelected = selectedNodeId === node.id;
+                      
+                      return (
+                        <g key={node.id} onClick={() => setSelectedNodeId(node.id)} style={{ cursor: "pointer" }}
+                           className="transition-all duration-300">
+                          {isSelected && (
+                             <circle cx={node.x} cy={node.y} r={radius + 8} fill={color} opacity={0.15} className="animate-pulse" />
+                          )}
+                          <circle cx={node.x} cy={node.y} r={radius}
+                            fill={color} stroke={isSelected ? "white" : "none"} strokeWidth={2}
+                            opacity={0.9} className="hover:opacity-100 shadow-lg" />
+                        </g>
+                      );
+                    })}
+                  </g>
                 </svg>
               )}
             </CardContent>
           </Card>
 
-          {/* Sidebar */}
           <div className="space-y-4">
-            {/* Legenda */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Legenda de Nichos</CardTitle>
+            <Card className="border-border/40">
+              <CardHeader className="p-3 border-b border-border/40">
+                <CardTitle className="text-xs uppercase tracking-wider font-bold text-muted-foreground flex items-center gap-2">
+                  <Info className="h-3.5 w-3.5" /> Nichos Identificados
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-1">
-                {Array.from(communities.entries()).slice(0, 10).map(([community, count]) => (
+              <CardContent className="p-3 space-y-2">
+                {communityStats.map(([community, count]) => (
                   <div key={community} className="flex items-center gap-2 text-xs">
-                    <div className="w-3 h-3 rounded-full" style={{ background: COMMUNITY_COLORS[community % 10] }} />
-                    <span>Nicho {community}</span>
-                    <Badge variant="secondary" className="text-[10px] ml-auto">{count}</Badge>
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ background: COMMUNITY_COLORS[community % 10] }} />
+                    <span className="font-medium">Nicho #{community}</span>
+                    <Badge variant="outline" className="text-[9px] ml-auto bg-muted/50 border-none">{count} prod.</Badge>
                   </div>
                 ))}
               </CardContent>
             </Card>
 
-            {/* Detalhes do nó selecionado */}
-            {selectedNode && (
-              <Card className="border-primary/30">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Produto Selecionado</CardTitle>
+            {selectedNode ? (
+              <Card className="border-primary/20 shadow-lg animate-in fade-in slide-in-from-right-2">
+                <CardHeader className="p-3 bg-primary/5 border-b border-primary/10">
+                  <CardTitle className="text-xs uppercase font-bold text-primary">Detalhes do Produto</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  <p className="text-xs font-medium line-clamp-3">{selectedNode.title}</p>
-                  <div className="grid grid-cols-2 gap-2 text-[10px]">
-                    <div className="bg-muted/50 rounded p-1.5 text-center">
-                      <p className="font-bold">{(selectedNode.pageRank * 100).toFixed(1)}%</p>
-                      <p className="text-muted-foreground">PageRank</p>
-                    </div>
-                    <div className="bg-muted/50 rounded p-1.5 text-center">
-                      <p className="font-bold">Nicho {selectedNode.community}</p>
-                      <p className="text-muted-foreground">Comunidade</p>
+                <CardContent className="p-3 space-y-4">
+                  <div>
+                    <h3 className="text-xs font-bold line-clamp-3 leading-tight mb-2">{selectedNode.title || "Produto sem título"}</h3>
+                    <div className="flex items-center gap-2">
+                       <Badge variant="outline" className="text-[10px] bg-muted/50 border-none flex items-center gap-1">
+                        <Tag className="h-3 w-3" /> {selectedNode.category || "Geral"}
+                      </Badge>
                     </div>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-muted/30 p-2 rounded-lg">
+                      <p className="text-[9px] uppercase font-bold text-muted-foreground mb-1">Preço Atual</p>
+                      <div className="flex items-center gap-1 text-primary font-bold">
+                        <DollarSign className="h-3 w-3" />
+                        <span className="text-sm">{(selectedNode.price || 0).toFixed(2)}</span>
+                      </div>
+                    </div>
+                    <div className="bg-muted/30 p-2 rounded-lg">
+                      <p className="text-[9px] uppercase font-bold text-muted-foreground mb-1">PageRank</p>
+                      <div className="flex items-center gap-1 text-purple-600 font-bold">
+                        <BarChart3 className="h-3 w-3" />
+                        <span className="text-sm">{(selectedNode.pageRank * 100).toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px] uppercase font-bold text-muted-foreground">
+                      <span>Centralidade no Grafo</span>
+                      <span>{(selectedNode.pageRank / maxPR * 100).toFixed(0)}%</span>
+                    </div>
+                    <Progress value={(selectedNode.pageRank / maxPR * 100)} className="h-1.5" />
+                  </div>
+
                   <Link to={`/produtos/${selectedNode.id}/insights`}>
-                    <Button variant="default" size="sm" className="w-full text-xs mt-2">
-                      Ver Insights Completos
+                    <Button variant="default" size="sm" className="w-full text-xs font-bold rounded-xl shadow-md h-9">
+                      Ver Insights Avançados
                     </Button>
                   </Link>
                 </CardContent>
               </Card>
+            ) : (
+              <div className="h-40 flex flex-col items-center justify-center text-center p-4 bg-muted/20 border-2 border-dashed border-border/40 rounded-xl">
+                <Network className="h-8 w-8 text-muted-foreground opacity-20 mb-2" />
+                <p className="text-[10px] text-muted-foreground font-medium">Clique em um nó do grafo para analisar métricas de rede.</p>
+              </div>
             )}
           </div>
         </div>

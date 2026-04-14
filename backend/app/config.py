@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     ML_CLIENT_SECRET: str = ""
     ML_REDIRECT_URI: str = "http://localhost:3333/api/auth/callback"
 
+    # Mercado Livre Afiliados (Oficial)
+    MATT_TOOL: str = "48707087"
+    MATT_SOURCE: str = "afiliados"
+    MATT_MEDIUM: str = "social"
+
     # Ética e Privacidade
     IP_HASH_SALT: str = "afiliaml-default-salt-2024"
     AFFILIATE_DISCLAIMER: str = (

@@ -6,11 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
 
 const API_BASE = "http://localhost:3333";
 const API_HEADERS = { "Content-Type": "application/json" };
 
 const Compartilhar = () => {
+  const { toast } = useToast();
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -38,25 +40,19 @@ const Compartilhar = () => {
     fetchCatalog();
   }, [fetchCatalog]);
 
-  const handleShareWhatsApp = async (productId: string) => {
-    try {
-      setSharingId(productId);
-      const res = await fetch(`${API_BASE}/api/share/whatsapp/${productId}`, {
-        method: "POST",
-        headers: API_HEADERS,
-      });
-      const data = await res.json();
+  const handleShareWhatsApp = async (product: any) => {
+    // Materia: Empreendedorismo - Formatação de oferta para conversão
+    const titleUpper = (product.title || "").toUpperCase();
+    const shortTitle = (product.title || "").split(" - ")[0].split(" (")[0];
+    const price = (product.price || 0).toFixed(2);
+    const oldPrice = (product.oldPrice || 0).toFixed(2);
+    const link = product.affiliateUrl || "";
 
-      if (data.success && data.data.message) {
-        setEditingProductId(productId);
-        setEditingMessage(data.data.message);
-        setManualAffiliateLink(""); // Reseta ao abrir um novo produto
-      }
-    } catch (error) {
-      console.error("Erro ao gerar link:", error);
-    } finally {
-      setSharingId(null);
-    }
+    const message = `🔥 ${titleUpper}\n✅ ${shortTitle}\n💰 DE R$${oldPrice} | POR R$${price}\n🔗 ${link}`;
+    
+    setEditingProductId(product.id);
+    setEditingMessage(message);
+    setManualAffiliateLink("");
   };
 
   const handleManualLinkChange = (newLink: string) => {
@@ -70,11 +66,21 @@ const Compartilhar = () => {
   };
 
   const handleSendWhatsApp = () => {
+    // Materia: Sistemas Distribuídos - Integração com APIs externas (WhatsApp)
     const encoded = encodeURIComponent(editingMessage);
     window.open(`https://wa.me/?text=${encoded}`, "_blank");
     setEditingProductId(null);
     setEditingMessage("");
     setManualAffiliateLink("");
+  };
+
+  const handleCopyMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(editingMessage);
+      toast({ title: "✅ Copiado!", description: "Texto pronto para colar no WhatsApp." });
+    } catch (err) {
+      console.error("Erro ao copiar:", err);
+    }
   };
 
   const handleCancelEdit = () => {
@@ -156,7 +162,7 @@ const Compartilhar = () => {
 
                       <Button
                         size="sm"
-                        onClick={() => handleShareWhatsApp(product.id)}
+                        onClick={() => handleShareWhatsApp(product)}
                         disabled={sharingId === product.id || editingProductId === product.id}
                         className="bg-[#25D366] hover:bg-[#128C7E] text-white font-bold rounded-full h-10 w-10 p-0 shadow-lg"
                       >
@@ -220,10 +226,7 @@ const Compartilhar = () => {
                           Enviar no App
                         </Button>
                         <Button 
-                          onClick={async () => {
-                            await navigator.clipboard.writeText(editingMessage);
-                            alert('Texto completo copiado! Basta colar (Ctrl+V) no WhatsApp que já está aberto.');
-                          }} 
+                          onClick={handleCopyMessage} 
                           variant="secondary" 
                           className="h-11 rounded-xl px-6 bg-secondary/50 font-semibold"
                         >

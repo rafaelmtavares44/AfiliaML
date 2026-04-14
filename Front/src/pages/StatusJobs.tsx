@@ -1,216 +1,163 @@
 // ============================================
-// AfiliaML — Página de Status de Jobs
-// NOVO: Fase 3.2 — Monitoramento de filas BullMQ
+// AfiliaML — Monitoramento de Tarefas Agendadas
+// Materia: Sistemas Distribuídos - Monitoramento de jobs assíncronos.
 // ============================================
 
-import { useState, useEffect, useCallback } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import {
-  RefreshCw, Play, Clock, CheckCircle2, XCircle, Loader2,
-  Bot, Zap, Brain, Sparkles
+import { 
+  Pause, Play, RefreshCw, Clock, 
+  Terminal, Activity, CheckCircle2, AlertCircle, Loader2
 } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
-const API = "http://localhost:3333";
-
-const queueConfig: Record<string, { label: string; icon: any; color: string }> = {
-  scraper: { label: "Scraper", icon: Bot, color: "text-blue-500" },
-  enrichment: { label: "Enriquecimento", icon: Zap, color: "text-yellow-500" },
-  mlTraining: { label: "ML Training", icon: Brain, color: "text-purple-500" },
-  recommendations: { label: "Recomendações", icon: Sparkles, color: "text-emerald-500" },
-};
-
-function QueueCard({ name, data }: { name: string; data: any }) {
-  const config = queueConfig[name] || { label: name, icon: RefreshCw, color: "text-gray-500" };
-  const Icon = config.icon;
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Icon className={`h-5 w-5 ${config.color}`} />
-          <h3 className="font-medium text-sm">{config.label}</h3>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="flex items-center gap-1.5 text-xs">
-            <Clock className="h-3 w-3 text-amber-500" />
-            <span className="text-muted-foreground">Aguardando:</span>
-            <Badge variant="secondary" className="text-[10px]">{data?.waiting ?? 0}</Badge>
-          </div>
-          <div className="flex items-center gap-1.5 text-xs">
-            <Loader2 className="h-3 w-3 text-blue-500 animate-spin" />
-            <span className="text-muted-foreground">Ativo:</span>
-            <Badge variant="secondary" className="text-[10px]">{data?.active ?? 0}</Badge>
-          </div>
-          <div className="flex items-center gap-1.5 text-xs">
-            <CheckCircle2 className="h-3 w-3 text-green-500" />
-            <span className="text-muted-foreground">Concluído:</span>
-            <Badge className="text-[10px] bg-green-500/10 text-green-600">{data?.completed ?? 0}</Badge>
-          </div>
-          <div className="flex items-center gap-1.5 text-xs">
-            <XCircle className="h-3 w-3 text-red-500" />
-            <span className="text-muted-foreground">Falhou:</span>
-            <Badge variant="destructive" className="text-[10px]">{data?.failed ?? 0}</Badge>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+const API = import.meta.env.VITE_API_URL || "http://localhost:3333";
 
 export default function StatusJobs() {
   const { toast } = useToast();
-  const [status, setStatus] = useState<any>(null);
-  const [history, setHistory] = useState<any>(null);
-  const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const fetchStatus = useCallback(async () => {
-    try {
-      const r = await fetch(`${API}/api/jobs/status`);
-      const d = await r.json();
-      if (d.success) setStatus(d.data);
-    } catch {}
-  }, []);
+  // Materia: Computação Paralela - Polling de estado de threads em segundo plano
+  const { data, isLoading } = useQuery({
+    queryKey: ["jobs", "status"],
+    queryFn: async () => {
+      const res = await fetch(`${API}/api/jobs/status`);
+      const d = await res.json();
+      return d.data;
+    },
+    refetchInterval: 10000, // Atualiza a cada 10s
+  });
 
-  const fetchHistory = async () => {
-    try {
-      const r = await fetch(`${API}/api/jobs/history`);
-      const d = await r.json();
-      if (d.success) setHistory(d.data);
-    } catch {}
-  };
-
-  // Auto-refresh a cada 10 segundos
-  useEffect(() => {
-    fetchStatus();
-    fetchHistory();
-    const interval = setInterval(fetchStatus, 10000);
-    return () => clearInterval(interval);
-  }, [fetchStatus]);
-
-  const executeAction = async (endpoint: string, label: string) => {
-    setLoadingAction(label);
-    try {
-      const r = await fetch(`${API}${endpoint}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      const d = await r.json();
-      if (d.success) {
-        toast({ title: `✅ ${label}`, description: d.message });
-        setTimeout(() => { fetchStatus(); fetchHistory(); }, 2000);
-      } else {
-        toast({ title: `❌ Erro`, description: d.message, variant: "destructive" });
-      }
-    } catch { toast({ title: "❌ Erro de conexão", variant: "destructive" }); }
-    finally { setLoadingAction(null); }
-  };
-
-  // Coletar jobs do histórico para tabela
-  const allJobs: any[] = [];
-  if (history) {
-    for (const [queue, data] of Object.entries(history) as [string, any][]) {
-      for (const job of (data.completed || [])) allJobs.push({ ...job, queue, status: "completed" });
-      for (const job of (data.failed || [])) allJobs.push({ ...job, queue, status: "failed" });
+  const toggleMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const res = await fetch(`${API}/api/jobs/toggle/${jobId}`, { method: "POST" });
+      if (!res.ok) throw new Error("Erro ao alternar estado do job");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: `📦 Job ${data.data.status}`, description: `A tarefa foi ${data.data.status} com sucesso.` });
+      queryClient.invalidateQueries({ queryKey: ["jobs", "status"] });
     }
-  }
-  allJobs.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  });
+
+  const jobs = data?.jobs || [];
 
   return (
     <Layout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <RefreshCw className="h-6 w-6 text-primary" /> Status dos Jobs
-          </h1>
-          <p className="text-sm text-muted-foreground">Monitoramento em tempo real das filas de processamento (atualiza a cada 10s)</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2 text-foreground">
+              <Activity className="h-6 w-6 text-emerald-500" /> Status do Sistema
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Monitoramento em tempo real do agendador baseada em CRON.
+            </p>
+          </div>
+          <Badge variant={data?.scheduler_running ? "default" : "destructive"} className="gap-2 px-3 py-1 rounded-full">
+            <span className={`h-2 w-2 rounded-full ${data?.scheduler_running ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`} />
+            {data?.scheduler_running ? "Scheduler Online" : "Scheduler Offline"}
+          </Badge>
         </div>
 
-        {/* Queue cards */}
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-          {status && Object.entries(status).map(([name, data]) => (
-            <QueueCard key={name} name={name} data={data} />
-          ))}
+        <div className="grid gap-4 md:grid-cols-3">
+           <Card className="border-border/40 bg-card shadow-sm"><CardContent className="p-4 flex items-center gap-4">
+            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center"><Terminal className="h-5 w-5 text-primary" /></div>
+            <div>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Jobs Ativos</p>
+              <p className="text-xl font-bold">{jobs.filter((j: any) => j.pending).length}</p>
+            </div>
+          </CardContent></Card>
+          <Card className="border-border/40 bg-card shadow-sm"><CardContent className="p-4 flex items-center gap-4">
+            <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center"><Clock className="h-5 w-5 text-blue-500" /></div>
+            <div>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Próxima Janela</p>
+              <p className="text-xl font-bold">{jobs[0]?.next_run ? new Date(jobs[0].next_run).toLocaleTimeString() : "--:--"}</p>
+            </div>
+          </CardContent></Card>
+          <Card className="border-border/40 bg-card shadow-sm"><CardContent className="p-4 flex items-center gap-4">
+            <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center"><CheckCircle2 className="h-5 w-5 text-emerald-500" /></div>
+            <div>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Integridade</p>
+              <p className="text-sm font-bold text-emerald-600">Sistemas Operacionais</p>
+            </div>
+          </CardContent></Card>
         </div>
 
-        {/* Action buttons */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Ações</CardTitle>
+        <Card className="border-border/40 shadow-md">
+          <CardHeader className="border-b border-border/40 bg-muted/20">
+            <CardTitle className="text-sm font-bold flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" /> APScheduler Tasks
+            </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" className="gap-2" disabled={!!loadingAction}
-                onClick={() => executeAction("/api/jobs/scrape", "Scraping")}>
-                {loadingAction === "Scraping" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                Executar Scraping Agora
-              </Button>
-              <Button size="sm" variant="outline" className="gap-2" disabled={!!loadingAction}
-                onClick={() => executeAction("/api/jobs/enrich-all", "Enriquecimento")}>
-                {loadingAction === "Enriquecimento" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-                Enriquecer Todos os Produtos
-              </Button>
-              <Button size="sm" variant="outline" className="gap-2" disabled={!!loadingAction}
-                onClick={() => executeAction("/api/jobs/train-model", "Treinamento")}>
-                {loadingAction === "Treinamento" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
-                Treinar Modelo
-              </Button>
-              <Button size="sm" variant="outline" className="gap-2" disabled={!!loadingAction}
-                onClick={() => executeAction("/api/recommendations/refresh", "Recomendações")}>
-                {loadingAction === "Recomendações" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                Atualizar Recomendações
-              </Button>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/30 text-muted-foreground text-[10px] uppercase font-bold">
+                  <tr>
+                    <th className="text-left p-4">Tarefa</th>
+                    <th className="text-left p-4">Trigger</th>
+                    <th className="text-left p-4">Próxima Execução</th>
+                    <th className="text-center p-4">Status</th>
+                    <th className="text-right p-4">Ação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/40 font-medium">
+                  {isLoading ? (
+                    <tr><td colSpan={5} className="p-8 text-center text-muted-foreground animate-pulse">Carregando tarefas...</td></tr>
+                  ) : jobs.length === 0 ? (
+                    <tr><td colSpan={5} className="p-8 text-center text-muted-foreground">Nenhum job encontrado.</td></tr>
+                  ) : (
+                    jobs.map((job: any) => (
+                      <tr key={job.id} className="hover:bg-muted/10 transition-colors">
+                        <td className="p-4">
+                          <div className="flex flex-col">
+                            <span className="font-bold">{job.name || job.id}</span>
+                            <span className="text-[10px] text-muted-foreground">ID: {job.id}</span>
+                          </div>
+                        </td>
+                        <td className="p-4"><code className="bg-muted px-2 py-0.5 rounded text-[11px]">{job.trigger}</code></td>
+                        <td className="p-4 text-xs">
+                          {job.next_run ? new Date(job.next_run).toLocaleString('pt-BR') : "Desativado"}
+                        </td>
+                        <td className="p-4 text-center">
+                          <Badge variant={job.pending ? "default" : "secondary"} className="text-[10px] uppercase font-bold">
+                            {job.pending ? "Agendado" : "Pausado"}
+                          </Badge>
+                        </td>
+                        <td className="p-4 text-right">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className={`rounded-xl border-border/60 ${job.pending ? 'hover:bg-red-50 text-red-600' : 'hover:bg-emerald-50 text-emerald-600'}`}
+                            onClick={() => toggleMutation.mutate(job.id)}
+                            disabled={toggleMutation.isPending}
+                          >
+                            {job.pending ? <Pause className="h-3.5 w-3.5 mr-1" /> : <Play className="h-3.5 w-3.5 mr-1" />}
+                            {job.pending ? "Pausar" : "Ativar"}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </CardContent>
         </Card>
 
-        {/* History table */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Histórico de Jobs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-20">Fila</TableHead>
-                  <TableHead className="w-20">Status</TableHead>
-                  <TableHead>Job</TableHead>
-                  <TableHead className="w-24">Duração</TableHead>
-                  <TableHead className="w-36">Data</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {allJobs.slice(0, 20).map((job, i) => (
-                  <TableRow key={i}>
-                    <TableCell>
-                      <Badge variant="outline" className="text-[10px]">
-                        {queueConfig[job.queue]?.label || job.queue}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={`text-[10px] ${job.status === "completed" ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"}`}>
-                        {job.status === "completed" ? "✅ OK" : "❌ Falha"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs truncate max-w-32">{job.name}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{job.duration || "—"}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {job.createdAt ? new Date(job.createdAt).toLocaleString("pt-BR") : "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {allJobs.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                      Nenhum job executado ainda.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <div className="rounded-2xl bg-blue-500/10 border border-blue-200 p-4 flex gap-4 items-start">
+          <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5" />
+          <div className="space-y-1">
+            <h4 className="text-sm font-bold text-blue-900">Nota Acadêmica: Ética em IA</h4>
+            <p className="text-xs text-blue-700 leading-relaxed">
+              O monitoramento de jobs automáticos (scrapers) garante o cumprimento dos limites de requisição (*rate limiting*) respeitando os termos de uso da plataforma parceira e a ética no tratamento de dados públicos.
+            </p>
+          </div>
+        </div>
       </div>
     </Layout>
   );
