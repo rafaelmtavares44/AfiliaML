@@ -1,0 +1,35 @@
+# ============================================
+# AfiliaML Backend — Dependências Python
+# ============================================
+
+# Framework Web
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# Redis
+redis[hiredis]==5.2.1
+
+# Validation & Settings
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# HTTP Client
+httpx==0.28.1
+
+# Web Scraping
+beautifulsoup4==4.12.3
+lxml==5.3.0
+
+# Machine Learning
+scikit-learn==1.6.1
+numpy==2.2.1
+
+# Scheduler
+apscheduler==3.10.4
+
+# Utilities
+python-dotenv==1.0.1
+python-slugify==8.0.4
+
+# CORS
+# (built into FastAPI/Starlette)
