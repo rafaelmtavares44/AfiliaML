@@ -23,6 +23,7 @@ export function ProductCard({ product, variant = "compact" }: ProductCardProps) 
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [isAffiliating, setIsAffiliating] = useState(false);
 
   const title = product.title ?? "Sem título";
   const imageUrl = product.imageUrl ?? product.image ?? "";
@@ -100,36 +101,47 @@ export function ProductCard({ product, variant = "compact" }: ProductCardProps) 
           )}
         </div>
 
-        {/* Actions - Apenas Inserção de Link (Garimpo) */}
+        {/* Actions - Inserção de Link / Afiliação */}
         <div className="mt-2 text-center">
-          <div className="flex gap-1 items-center">
-            <input
-              type="text"
-              placeholder="Cole o link do ML aqui..."
-              className="flex-1 h-8 text-xs px-2 border rounded-md min-w-0 bg-background shadow-xs focus-visible:ring-primary focus-visible:border-primary"
-              id={`link-input-${product.id}`}
-              defaultValue={product.affiliateUrl || ""}
-            />
-            <Button size="sm" variant="default" className="h-8 px-3 text-xs shadow-sm bg-primary hover:bg-primary/90 hover:scale-105 transition-all" onClick={async () => {
-              const inputElement = document.getElementById(`link-input-${product.id}`) as HTMLInputElement;
-              if (!inputElement?.value) return;
+          {product.affiliateUrl ? (
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" className="flex-1 text-xs h-8 border-green-500 text-green-600 hover:bg-green-50">
+                <Check className="h-3.5 w-3.5 mr-1" /> Afiliado!
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 px-2" onClick={handleCopyLink} title="Copiar link">
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <Button 
+              size="sm" 
+              variant="default" 
+              className="w-full text-xs h-8 bg-primary hover:bg-primary/90 hover:scale-105 transition-all text-black font-bold" 
+              disabled={isAffiliating}
+              onClick={async () => {
               try {
-                const res = await fetch(`http://localhost:3333/api/products/${product.id}`, {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ affiliateUrl: inputElement.value })
+                setIsAffiliating(true);
+                const res = await fetch(`http://localhost:3333/api/products/${product.id}/affiliate`, {
+                  method: 'POST',
                 });
-                if (res.ok) {
-                  toast({ title: "Salvo no Cofre!" });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                  toast({ title: "Afiliado com Sucesso!", description: "Link oficial gerado." });
                   window.location.reload();
+                } else {
+                  // Fallback se n tiver configurado etc..
+                  toast({ title: "Atenção", description: data.error || "Verifique auth do ML", variant: "destructive" });
                 }
               } catch (e) {
-                toast({ title: "Erro ao salvar", variant: "destructive" });
+                toast({ title: "Erro ao afiliar", variant: "destructive" });
+              } finally {
+                setIsAffiliating(false);
               }
             }}>
-              <Check className="h-3.5 w-3.5 text-black mr-1" /> Salvar
+              {isAffiliating ? <Check className="h-4 w-4 mr-1 text-black animate-pulse" /> : <Sparkles className="h-4 w-4 mr-1 text-black" />}
+              {isAffiliating ? "Gerando..." : "💰 Afiliar (Meli.la)"}
             </Button>
-          </div>
+          )}
         </div>
       </CardContent>
     </Card>

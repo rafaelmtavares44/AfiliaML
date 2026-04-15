@@ -53,7 +53,7 @@ const Index = () => {
       
       // Montar URLs com filtro de categoria
       let statsUrl = `${API_BASE}/api/dashboard/stats`;
-      let productsUrl = `${API_BASE}/api/products/catalog?limite=24&hasAffiliate=false`;
+      let productsUrl = `${API_BASE}/api/products/catalog?limite=24`;
       
       if (cat !== "todos") {
         statsUrl += `?categoria=${cat}`;
@@ -155,9 +155,23 @@ const Index = () => {
             </p>
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center gap-3 mt-4">
-                <Button variant="secondary" size="sm" className="gap-1.5 h-10 px-4 font-bold shadow-md hover:scale-105 transition-all" onClick={() => handleScraper("ofertas")} disabled={isScraping}>
+                <Select value={selectedCategory} onValueChange={handleCategoryClick}>
+                  <SelectTrigger className="w-[250px] h-10 bg-white/10 hover:bg-white/20 border-white/20 text-white focus:ring-0 focus:ring-offset-0 transition-colors">
+                    <SelectValue placeholder="Selecione a Categoria" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    <SelectItem value="todos">🔥 Geral (Dashboard)</SelectItem>
+                    {categories.filter(c => c.id !== "ofertas").map((cat) => (
+                      <SelectItem key={cat.id} value={cat.id}>
+                        {cat.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Button variant="secondary" size="sm" className="gap-1.5 h-10 px-4 font-bold shadow-md hover:scale-105 transition-all text-primary" onClick={() => handleScraper(selectedCategory)} disabled={isScraping}>
                   {isScraping ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {isScraping ? "Buscando Ofertas..." : "Buscar Ofertas ML Agora!"}
+                  {isScraping ? "Buscando Ofertas..." : "Buscar Nesta Categoria!"}
                 </Button>
                 <Link to="/compartilhar">
                   <Button variant="outline" size="sm" className="gap-1.5 h-10 px-4 bg-white/10 border-white/20 hover:bg-white/20 text-white font-medium">

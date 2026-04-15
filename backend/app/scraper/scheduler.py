@@ -14,14 +14,36 @@ import asyncio
 
 scheduler = AsyncIOScheduler()
 
-async def run_all_scrapers_task():
+CATEGORY_URLS = {
+    "ofertas": "https://www.mercadolivre.com.br/ofertas",
+    "ofertas-relampago": "https://www.mercadolivre.com.br/ofertas?container_id=MLB779362-1",
+    "precos-imbativeis": "https://www.mercadolivre.com.br/ofertas?container_id=MLB779363-1",
+    "outlet": "https://www.mercadolivre.com.br/ofertas?container_id=MLB779365-1",
+    "celulares": "https://www.mercadolivre.com.br/ofertas?category=MLB1051",
+    "notebooks": "https://www.mercadolivre.com.br/ofertas?category=MLB1648",
+    "menos-de-100": "https://www.mercadolivre.com.br/ofertas?price=*-100",
+    "compra-internacional": "https://www.mercadolivre.com.br/ofertas?cbi=true",
+    "calcados": "https://www.mercadolivre.com.br/ofertas?category=MLB1430",
+    "audio": "https://www.mercadolivre.com.br/ofertas?category=MLB1000",
+    "televisores": "https://www.mercadolivre.com.br/ofertas?category=MLB1000",
+    "ferramentas": "https://www.mercadolivre.com.br/ofertas?category=MLB4314",
+    "smartwatches": "https://www.mercadolivre.com.br/ofertas?category=MLB3937",
+    "supermercado": "https://www.mercadolivre.com.br/ofertas?category=MLB1434",
+    "caixas-de-som": "https://www.mercadolivre.com.br/ofertas?category=MLB1000",
+    "perfumes": "https://www.mercadolivre.com.br/ofertas?category=MLB6284",
+    "moda": "https://www.mercadolivre.com.br/ofertas?category=MLB1430",
+    "esportes": "https://www.mercadolivre.com.br/ofertas?category=MLB1499",
+}
+
+async def run_all_scrapers_task(categoria: str = "ofertas"):
     """Tarefa principal: roda scrapers, treina ML e atualiza recomendações."""
-    print("[Job] Iniciando ciclo completo de processamento...")
+    print(f"[Job] Iniciando ciclo completo de processamento para a categoria: {categoria}...")
     settings = get_settings()
     
     # 1. Scrapers
-    for url in settings.scraper_urls:
-        await scraper_mercadolivre_ofertas(url)
+    target_url = CATEGORY_URLS.get(categoria, "https://www.mercadolivre.com.br/ofertas")
+    
+    await scraper_mercadolivre_ofertas(target_url, categoria)
     
     await sincronizar_vitrine()
     

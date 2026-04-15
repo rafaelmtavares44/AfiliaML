@@ -37,7 +37,7 @@ function RecommendationCard({ item }: { item: any }) {
   // Materia: Empreendedorismo - Conversão de recomendação em venda (Link de Afiliado)
   const generateMutation = useMutation({
     mutationFn: async (productId: string) => {
-      const res = await fetch(`${API}/api/affiliate-links/generate/${productId}`, { method: "POST" });
+      const res = await fetch(`${API}/api/products/${productId}/affiliate`, { method: "POST" });
       if (!res.ok) throw new Error("Erro ao gerar link");
       return res.json();
     },

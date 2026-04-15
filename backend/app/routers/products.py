@@ -39,7 +39,7 @@ async def listar_destaque():
 @router.get("/catalog")
 async def catalogo(
     pagina: int = Query(1, ge=1),
-    limite: int = Query(20, ge=1, le=100),
+    limite: int = Query(20, ge=1, le=500),
     busca: str | None = None,
     categoria: str | None = None,
     loja: str | None = None,
@@ -122,6 +122,18 @@ async def enriquecer(product_id: str):
         resultado = await product_service.enriquecer(product_id)
         return resposta_sucesso(resultado, "Produto enriquecido com dados da API do ML")
     except ValueError as e:
+        return JSONResponse(
+            content=resposta_erro(str(e), 400), status_code=400
+        )
+
+
+@router.post("/{product_id}/affiliate")
+async def gerar_link_afiliado(product_id: str):
+    from app.services.affiliate_link_service import affiliate_link_service
+    try:
+        resultado = await affiliate_link_service.gerar_via_template(product_id)
+        return resposta_sucesso(resultado, "Link de afiliado gerado com sucesso")
+    except Exception as e:
         return JSONResponse(
             content=resposta_erro(str(e), 400), status_code=400
         )

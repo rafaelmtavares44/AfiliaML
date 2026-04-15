@@ -151,17 +151,71 @@ class MLApiService:
             "categoryId": data.get("category_id", ""),
         }
 
-    async def get_item_rating(self, item_id: str) -> dict | None:
-        data = await self.authenticated_get(
-            f"https://api.mercadolibre.com/reviews/item/{item_id}"
-        )
-        if not data:
+    async def authenticated_post(self, url: str, data: dict) -> dict | None:
+        """POST autenticado com retry se token expirou."""
+        token = await self.get_access_token()
+        if not token:
+            token = await self.refresh_access_token()
+            if not token:
+                return None
+
+        async def _make_post(t):
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                return await client.post(
+                    url, 
+                    json=data, 
+                    headers={
+                        "Authorization": f"Bearer {t}",
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    }
+                )
+
+        try:
+            resp = await _make_post(token)
+            if resp.status_code in [200, 201]:
+                return resp.json()
+            elif resp.status_code == 401:
+                print("🔄 mlApi: Token expirado em POST, renovando...")
+                token = await self.refresh_access_token()
+                if not token:
+                    return None
+                resp = await _make_post(token)
+                if resp.status_code in [200, 201]:
+                    return resp.json()
+            
+            print(f"❌ mlApi POST Error: {resp.status_code} - {resp.text}")
+            return None
+        except Exception as e:
+            print(f"❌ mlApi: Erro na requisição POST: {e}")
             return None
 
-        return {
-            "ratingAverage": data.get("rating_average", 0),
-            "ratingCount": data.get("paging", {}).get("total", 0),
+    async def create_social_link(self, item_id: str, store_id: str) -> str | None:
+        """
+        Gera link curto meli.la via API oficial /social/links.
+        """
+        payload = {
+            "item_id": item_id,
+            "store_id": str(store_id),
+            "channel": "whatsapp"
         }
+        
+        result = await self.authenticated_post(
+            "https://api.mercadolibre.com/social/links",
+            payload
+        )
+        
+        if not result:
+            return None
+            
+        # Tentar campos possíveis na resposta do ML
+        # Doc indica short_link ou url ou permalink
+        return (
+            result.get("short_link") or 
+            result.get("link") or 
+            result.get("url") or 
+            result.get("permalink")
+        )
 
 
 ml_api_service = MLApiService()

@@ -78,9 +78,9 @@ def limpar_preco(item_soup) -> float:
         return 0.0
 
 
-async def scraper_mercadolivre_ofertas(url: str) -> int:
+async def scraper_mercadolivre_ofertas(url: str, categoria: str = "ofertas") -> int:
     """Scraper principal de ofertas do Mercado Livre."""
-    print(f"Iniciando scraper ML Ofertas: {url}")
+    print(f"Iniciando scraper ML Ofertas: {url} | Categoria: {categoria}")
     
     try:
         async with httpx.AsyncClient(headers=HEADERS, timeout=15.0, follow_redirects=True) as client:
@@ -162,7 +162,7 @@ async def scraper_mercadolivre_ofertas(url: str) -> int:
                             "oldPrice": old_price if old_price > 0 else None,
                             "imageUrl": image_url,
                             "store": "mercadolivre",
-                            "category": "Ofertas"
+                            "category": categoria
                         })
                         total_processados += 1
                         print(f"Novo produto: {title[:30]}...")

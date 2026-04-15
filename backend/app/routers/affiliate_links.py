@@ -24,11 +24,11 @@ async def definir_link(body: dict):
         return JSONResponse(content=resposta_erro(str(e), 404), status_code=404)
 
 
-@router.post("/generate/{product_id}")
-async def gerar_template(product_id: str):
+@router.post("/{product_id}/generate")
+async def gerar_link_oficial(product_id: str):
     try:
         resultado = await affiliate_link_service.gerar_via_template(product_id)
-        return resposta_sucesso(resultado, "Link gerado via template")
+        return resposta_sucesso(resultado, "Link de afiliado gerado com sucesso")
     except ValueError as e:
         return JSONResponse(content=resposta_erro(str(e), 404), status_code=404)
 
